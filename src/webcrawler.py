@@ -2,10 +2,11 @@ from urllib.parse import urlparse
 from typing import List, Set, Dict
 import time
 import click 
+import dill
+
 
 from robotsparser import RobotsTxtParser
 from webpage import WebPage
-
 class WebCrawler:
     """Main web crawler that orchestrates the crawling process with depth-first traversal."""
     
@@ -89,7 +90,7 @@ class WebCrawler:
         
         self.visited_urls.add(url)
         
-        page = WebPage(url, **self.soup_find_kwargs)
+        page = WebPage(url, content_format="html", **self.soup_find_kwargs)
         success = page.fetch()
         
         if success:
@@ -196,8 +197,8 @@ class WebCrawler:
 def main():
     """Test the WebCrawler with depth-first traversal."""
     # Test crawling
-    start_url = "https://www.zolltarifnummern.de/"
-    max_time = 5  # 30 seconds limit for testing
+    start_url = "https://www.zolltarifnummern.de/2025/1"
+    max_time = 15  # 30 seconds limit for testing
     
     print(f"Testing WebCrawler with {start_url}")
     print(f"Time limit: {max_time} seconds")
@@ -213,6 +214,9 @@ def main():
         first_page = list(crawled_pages.values())[0]
         #print(first_page.content[:300] + "..." if lenfirst_page.content) > 300 else first_page.content)
         print(list(crawled_pages['pages'].values())[-1]['content'])
+
+    with open(f"./tmp/result_crawling_{max_time}_seconds.pickle", "wb") as f:
+        dill.dump(crawled_pages, f)
 
 if __name__ == "__main__":
     main()

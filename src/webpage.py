@@ -3,11 +3,10 @@ from bs4 import BeautifulSoup
 from urllib.parse import urljoin, urlparse
 from typing import List
 
-
 class WebPage:
     """Represents a single web page with content extraction and link parsing capabilities."""
     
-    def __init__(self, url: str, **soup_find_kwargs):
+    def __init__(self, url: str, content_format="text", **soup_find_kwargs):
         """
         Initialize a WebPage object.
         
@@ -22,6 +21,7 @@ class WebPage:
         self.is_fetched = False
         self.error_message = None
         self.soup_find_kwargs = soup_find_kwargs
+        self.content_format = content_format
     
     def fetch(self, timeout: int = 10, user_agent: str = "*") -> bool:
         """
@@ -76,7 +76,10 @@ class WebPage:
         for script in soup(["script", "style"]):
             script.decompose()
         
-        self.content = soup.get_text()
+        if self.content_format == "text":
+            self.content = soup.get_text()
+        else:
+            self.content = soup.prettify()
         # Clean up whitespace
         lines = (line.strip() for line in self.content.splitlines())
         chunks = (phrase.strip() for line in lines for phrase in line.split("  "))
