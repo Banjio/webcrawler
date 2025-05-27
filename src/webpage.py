@@ -1,29 +1,50 @@
+from multiprocessing import Value
+from os import stat
+from random import betavariate
+from click import Option
 import requests
 from bs4 import BeautifulSoup
 from urllib.parse import urljoin, urlparse
-from typing import List
+from typing import Any, List, Optional
+import httpx
+from dataclasses import dataclass
+import logging
+from functools import wraps
 
-class WebPage:
-    """Represents a single web page with content extraction and link parsing capabilities."""
-    
-    def __init__(self, url: str, content_format="text", **soup_find_kwargs):
-        """
-        Initialize a WebPage object.
-        
-        Args:
-            url: The URL of the web page
-        """
-        self.url = url
-        self.content = ""
-        self.title = ""
-        self.links = []
-        self.status_code = None
-        self.is_fetched = False
-        self.error_message = None
-        self.soup_find_kwargs = soup_find_kwargs
-        self.content_format = content_format
-    
-    def fetch(self, timeout: int = 10, user_agent: str = "*") -> bool:
+logger = logging.getLogger(__name__)
+
+
+@wraps
+def check_empty_soup(fun):
+    def inner(*args, **kwargs):
+        if args[1] is None:
+            return None
+        else:
+            return fun(*args, **kwargs)
+    return inner
+@dataclass
+class FetchResult:
+    content: str
+    status_code: int
+    error_msg: Optional[str] = None
+    success: bool = True
+
+@dataclass
+class ParseResult:
+    content: Optional[str] = None
+    links: Optional[List[str]] = []
+
+class Session():
+
+    def __init__(self, user_agent: str = "*", timeout: int = 10, raise_on_error: bool = False):
+        self.session = httpx.Client()
+        self.session.headers.update(
+            {'User-Agent': user_agent}
+            )
+        self.timeout = timeout
+        self.raise_on_error = raise_on_error #QA: Is this really neccesary decide later
+
+    def fetch(self, url) -> FetchResult:
         """
         Fetch the web page content from the URL.
         
@@ -34,29 +55,110 @@ class WebPage:
             True if page was successfully fetched, False otherwise
         """
         try:
-            headers = {
-                'User-Agent': user_agent
-            }
+            resp = self.session.get(url, timeout=self.timeout)
+            self.status_code = resp.status_code
             
-            response = requests.get(self.url, headers=headers, timeout=timeout)
-            self.status_code = response.status_code
-            
-            if response.status_code == 200:
-                self._parse_content(response.text)
-                self.is_fetched = True
-                print(f"✓ Fetched: {self.url}")
-                return True
-            else:
-                self.error_message = f"HTTP {response.status_code}"
-                print(f"✗ Failed: {self.url} ({self.error_message})")
-                return False
+            match resp.status_code:
+                case 200:
+                    result = FetchResult(resp.text, resp.status_code)
+                case 401:
+                    result = FetchResult(resp.text, resp.status_code, error_msg="401: Site not Found", success=False)
+                case _:
+                    result = FetchResult(resp.text, resp.status_code, error_msg=resp.text, success=False)
+                
+            logger.debug(f"Receiving result from url {url} is sucessful {result.success}. With status code: {result.status_code} and message {result.error_msg}")
+                
+            return result
                 
         except Exception as e:
-            self.error_message = str(e)
-            print(f"✗ Error fetching {self.url}: {e}")
-            return False
+            result = FetchResult("", 500, str(e), success=False)
+            logger.warning(f"✗ Error fetching {url}: {e}")
+            return result
     
-    def _parse_content(self, html: str, ) -> None:
+    def close(self):
+        self.session.close()
+
+
+class WebPageParser:
+
+    def __init__(self, result: FetchResult, return_format: str = "text"):
+        self.result = result
+        self.return_format = return_format
+        
+
+    
+    def parse(self, soup_ext: Optional[BeautifulSoup] = None, **find_kwargs) -> ParseResult:
+        if soup_ext is None:
+            soup = BeautifulSoup(self.result.content, "html.parser")
+        else:
+            soup = soup_ext
+        sub_soup = soup.find(**find_kwargs)
+        # Extract title
+        title_tag = soup.find('title')
+        title = title_tag.get_text().strip() if title_tag else "No title"
+        
+        # Extract clean text content
+        # Remove script and style elements
+        for script in soup(["script", "style"]):
+            script.decompose()
+        
+        if sub_soup is None:
+            return ParseResult()#ValueError(f"Your soup is empty. Please use another url than {self.url} or refine your soup_find_kwargs {self.soup_find_kwargs}")
+        if self.return_format == "text":
+            self.content = sub_soup.get_text()
+        else:
+            self.content = soup.prettify()
+        # Clean up whitespace
+        lines = (line.strip() for line in self.content.splitlines())
+        chunks = (phrase.strip() for line in lines for phrase in line.split("  "))
+        self.content = ' '.join(chunk for chunk in chunks if chunk)
+        
+        # Extract all links
+        self.links = []
+        for link in soup.find_all('a', href=True):
+            href = link['href']
+            # Convert relative URLs to absolute URLs
+            absolute_url = urljoin(self.url, href)
+            
+            # Only include HTTP/HTTPS links
+            if absolute_url.startswith(('http://', 'https://')):
+                self.links.append(absolute_url)
+
+    @check_empty_soup
+    def _parse_content(self, soup: Any | None):
+        if self.return_format == "text":
+            return soup.get_text() # type: ignore
+        else:
+            return soup.prettify() # type: ignore
+
+
+        
+
+
+class WebPage:
+    """Represents a single web page with content extraction and link parsing capabilities."""
+    
+    def __init__(self, url: str, session: Session, content_format="text", **soup_find_kwargs):
+        """
+        Initialize a WebPage object.
+        
+        Args:
+            url: The URL of the web page
+        """
+        self.url = url
+        self.session = session
+        self.content = ""
+        self.title = ""
+        self.links = []
+        self.status_code = None
+        self.is_fetched = False
+        self.error_message = None
+        self.soup_find_kwargs = soup_find_kwargs
+        self.content_format = content_format
+    
+    
+    
+    def _parse_content(self, html: str) -> None:
         """
         Parse HTML content and extract text, title, and links.
         
