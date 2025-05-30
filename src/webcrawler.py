@@ -199,7 +199,7 @@ def main():
     """Test the WebCrawler with depth-first traversal."""
     # Test crawling
     start_url = "https://www.tariffnumber.com/2025/1"
-    max_time = 15  # 30 seconds limit for testing
+    max_time = 300  # 30 seconds limit for testing
     
     print(f"Testing WebCrawler with {start_url}")
     print(f"Time limit: {max_time} seconds")
