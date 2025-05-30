@@ -1,12 +1,13 @@
 from urllib.parse import urlparse
-from typing import List, Set, Dict
+from typing import List, Set, Dict, Any
 import time
 import click 
 import dill
+from requests import session
 
 
 from robotsparser import RobotsTxtParser
-from webpage import WebPage
+from webpage import Session, WebPage
 class WebCrawler:
     """Main web crawler that orchestrates the crawling process with depth-first traversal."""
     
@@ -31,7 +32,7 @@ class WebCrawler:
         self.blocked_urls: List[str] = []
         self.failed_urls: List[str] = []
     
-    def crawl(self) -> Dict[str, any]:
+    def crawl(self) -> Dict[str, Any]:
         """
         Start the crawling process using depth-first traversal.
         
@@ -71,7 +72,7 @@ class WebCrawler:
             
             if success and depth < self.max_depth:
                 page = self.crawled_pages[current_url]
-                child_links = page.get_same_domain_links()
+                child_links = page.get_same_domain_links(page.parse_result.links)
                 
                 for link in reversed(child_links):
                     if link not in self.visited_urls:
@@ -89,19 +90,19 @@ class WebCrawler:
             click.echo(f"[{elapsed:.1f}s] Depth {depth}: Crawling {url}")
         
         self.visited_urls.add(url)
-        
-        page = WebPage(url, content_format="html", **self.soup_find_kwargs)
-        success = page.fetch()
-        
+        s = Session()
+        page = WebPage(url, s, content_format="html", **self.soup_find_kwargs)
+        success = page.fetch_result.success
+
         if success:
             self.crawled_pages[url] = page
             if self.verbose:
-                click.echo(f"    ✓ Title: {page.title}")
-                click.echo(f"    ✓ Content: {len(page.content)} chars, {len(page.get_same_domain_links())} links")
+                click.echo(f"    ✓ Title: {page.parse_result.title}")
+                click.echo(f"    ✓ Content: {len(page.parse_result.content)} chars, {len(page.get_same_domain_links(page.parse_result.links))} links")
         else:
             self.failed_urls.append(url)
             if self.verbose:
-                click.echo(f"    ✗ Failed: {page.error_message}")
+                click.echo(f"    ✗ Failed: {page.fetch_result.error_msg}")
         
         return success
     
@@ -118,7 +119,7 @@ class WebCrawler:
             return True
         return False
     
-    def _generate_results(self) -> Dict[str, any]:
+    def _generate_results(self) -> Dict[str, Any]:
         """Generate final results dictionary for JSON output."""
         elapsed = time.time() - self.start_time
         
@@ -197,7 +198,7 @@ class WebCrawler:
 def main():
     """Test the WebCrawler with depth-first traversal."""
     # Test crawling
-    start_url = "https://www.zolltarifnummern.de/2025/1"
+    start_url = "https://www.tariffnumber.com/2025/1"
     max_time = 15  # 30 seconds limit for testing
     
     print(f"Testing WebCrawler with {start_url}")
