@@ -66,22 +66,28 @@ class HtmlParserCustom:
 
 
 if __name__ == '__main__':
-    with open("./tmp/result_crawling_15_seconds.pickle", "rb") as f:
-        crawl_res = dill.load(f)
+    dfs = []
+    for db_year in (2025, 2024, 2023, 2022, 2021, 2020):
+        with open(f"./tmp/result_crawling_6000_seconds_{db_year}.pickle", "rb") as f:
+            crawl_res = dill.load(f)
 
-    p = HtmlParserCustom()
-    df = p.parse_contents(crawl_res['pages'])
-    # some df processing 
-    df["node_clean"] = (
-        df['node']
-        .str.replace("Chapter", "", regex=False)
-        .str.replace("Position", "", regex=False)
-        .str.replace("Subheading", "", regex=False)
-        .replace(r"\s+", "", regex=True)
-    )
-    df = df.query("node != 'No node found' and name != 'No name found'" )
-    print(df)
-    df.to_csv("./tmp/hs_codes.csv", index=False)
+        p = HtmlParserCustom()
+        df = p.parse_contents(crawl_res['pages'])
+        # some df processing 
+        df["node_clean"] = (
+            df['node']
+            .str.replace("Chapter", "", regex=False)
+            .str.replace("Position", "", regex=False)
+            .str.replace("Subheading", "", regex=False)
+            .replace(r"\s+", "", regex=True)
+        )
+        df["year"] = db_year
+        df = df.query("node != 'No node found' and name != 'No name found'" )
+        dfs.append(df)
+    df_fin = pd.concat(dfs)
+    df_fin = df_fin.drop_duplicates(subset=["node_clean", "year", "type"])
+    print(df_fin)
+    df_fin.to_csv("./tmp/hs_codes_2025_to_2021_full.csv", index=False)
 
 
 
